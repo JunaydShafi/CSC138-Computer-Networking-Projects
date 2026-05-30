@@ -1,8 +1,6 @@
 # CSC138-Computer-Networking-Projects
 TCP, UDP, and HTTP networking projects implemented in Java, including a threaded job queue server, reliable UDP file transfer receiver, and publish-subscribe message broker.
 
-# CSC138 Computer Networking Projects
-
 A collection of networking projects completed in CSC 138 (Computer Networking) at California State University, Sacramento.
 
 These projects explore network programming, concurrency, protocol design, and distributed systems concepts through the implementation of TCP, UDP, and HTTP-based applications in Java.
