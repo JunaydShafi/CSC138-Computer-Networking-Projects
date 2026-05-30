@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PBS - Pub-Sub Broker Server</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            background: linear-gradient(135deg, #1a7f5a 0%, #0d4f3a 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #1a7f5a;
+        }
+        h1 { color: #333; font-size: 2.5em; margin-bottom: 10px; }
+        .subtitle { color: #666; font-size: 1.2em; }
+        .section { margin-bottom: 40px; }
+        h2 { color: #1a7f5a; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #f0f0f0; }
+        h3 { margin-top: 1.2em; color: #0d4f3a; }
+        code { background: #f0f0f0; padding: 0.15em 0.4em; font-size: 93%; border-radius: 3px; }
+        .command-box {
+            background: #f8f9fa;
+            border-left: 4px solid #1a7f5a;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin: 15px 0;
+        }
+        .option-card {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 5px;
+            border-left: 3px solid #0d4f3a;
+        }
+        .option-card strong { color: #1a7f5a; }
+        table { border-collapse: collapse; margin: 15px 0; width: 100%; }
+        th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; }
+        th { background: #eef7f3; }
+        .warn {
+            background: #fff3cd;
+            border-left: 4px solid #856404;
+            padding: 12px 15px;
+            margin: 15px 0;
+        }
+
+        /* ── Interactive tester ── */
+        .tester {
+            background: linear-gradient(135deg, #1a7f5a10 0%, #0d4f3a10 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .tester-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .tester-row label { min-width: 90px; font-weight: 600; color: #333; }
+        .tester-row input, .tester-row select {
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .tester-row input[type="text"] { flex: 1; min-width: 120px; }
+        .btn {
+            display: inline-block;
+            background: #1a7f5a;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        .btn:hover { background: #0d4f3a; }
+        .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+        #result-pane {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            padding: 15px;
+            border-radius: 5px;
+            min-height: 120px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-top: 15px;
+        }
+        .req-line { color: #569cd6; }
+        .res-line { color: #6a9955; }
+        .err-line { color: #f44747; }
+
+        /* ── Tutorial grid ── */
+        .tutorials-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .tutorial-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+        .tutorial-card:hover {
+            border-color: #1a7f5a;
+            box-shadow: 0 5px 15px rgba(26, 127, 90, 0.2);
+            transform: translateY(-2px);
+        }
+        .tutorial-card h3 { color: #1a7f5a; margin-bottom: 8px; font-size: 1.05em; margin-top: 8px; }
+        .tutorial-card p { color: #666; font-size: 0.9em; }
+        .category-label {
+            display: inline-block;
+            background: #1a7f5a;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.7em;
+            text-transform: uppercase;
+        }
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #f0f0f0;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+<header>
+    <h1>PBS &mdash; Pub-Sub Broker Server</h1>
+    <p class="subtitle">An HTTP/1.1 message broker in Java</p>
+</header>
+
+<!-- ────────────────────────────────────────── -->
+<section class="section">
+    <h2>About This Project</h2>
+    <p>
+        PBS is an HTTP/1.1 server that implements a publish-subscribe message broker.
+        Clients subscribe to topics, publish messages, and poll for delivery &mdash; all
+        through standard HTTP requests. You will build the server; the test client
+        (<code>pbc.java</code>) is provided.
+    </p>
+</section>
+
+<!-- ────────────────────────────────────────── -->
+<section class="section">
+    <h2>API Endpoints</h2>
+    <table>
+        <tr><th>Method</th><th>Path</th><th>Headers / Body</th><th>Description</th></tr>
+        <tr>
+            <td><code>POST</code></td>
+            <td><code>/subscribe/&lt;topic&gt;</code></td>
+            <td><code>X-Client-ID</code> required</td>
+            <td>Subscribe client to a topic</td>
+        </tr>
+        <tr>
+            <td><code>POST</code></td>
+            <td><code>/unsubscribe/&lt;topic&gt;</code></td>
+            <td><code>X-Client-ID</code> required</td>
+            <td>Unsubscribe client from a topic</td>
+        </tr>
+        <tr>
+            <td><code>POST</code></td>
+            <td><code>/publish/&lt;topic&gt;</code></td>
+            <td><code>X-Client-ID</code> required; message in body</td>
+            <td>Publish message to all subscribers of topic</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/messages</code></td>
+            <td><code>X-Client-ID</code> required</td>
+            <td>Retrieve and clear pending messages</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/status</code></td>
+            <td>&mdash;</td>
+            <td>List topics with subscriber counts</td>
+        </tr>
+    </table>
+
+    <h3>Response Format</h3>
+    <p>All responses are JSON with appropriate HTTP status codes:</p>
+    <div class="command-box">HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 42
+Connection: close
+
+{"status":"subscribed","topic":"weather"}</div>
+</section>
+
+<!-- ────────────────────────────────────────── -->
+<section class="section">
+    <h2>Interactive API Tester</h2>
+    <p>
+        Start your server (<code>java pbs.java</code>), then use the controls below to
+        send requests and inspect the responses. This is the same HTTP your server
+        must parse and produce.
+    </p>
+
+    <div class="tester">
+        <div class="tester-row">
+            <label>Server:</label>
+            <input type="text" id="t-host" value="localhost" style="max-width:140px;">
+            <label style="min-width:auto;">Port:</label>
+            <input type="text" id="t-port" value="8080" style="max-width:80px;">
+            <label style="min-width:auto;">Client ID:</label>
+            <input type="text" id="t-client" value="tester-1" style="max-width:140px;">
+        </div>
+        <div class="tester-row">
+            <label>Topic:</label>
+            <input type="text" id="t-topic" value="weather">
+            <label style="min-width:auto;">Message:</label>
+            <input type="text" id="t-message" value="sunny today">
+        </div>
+
+        <div class="btn-row">
+            <button class="btn" onclick="apiCall('POST','/subscribe/')">Subscribe</button>
+            <button class="btn" onclick="apiCall('POST','/unsubscribe/')">Unsubscribe</button>
+            <button class="btn" onclick="apiCall('POST','/publish/')">Publish</button>
+            <button class="btn" onclick="apiCall('GET','/messages')">Poll Messages</button>
+            <button class="btn" onclick="apiCall('GET','/status')">Status</button>
+            <button class="btn" onclick="clearLog()" style="background:#666;">Clear</button>
+        </div>
+
+        <div id="result-pane">Ready. Start your server and click a button above.</div>
+    </div>
+
+    <div class="warn">
+        <strong>Note:</strong> The tester uses <code>fetch()</code> from your browser to
+        <code>http://localhost:8080</code>. If you see CORS errors, that is expected when
+        opening this page as a file. For manual testing, <code>curl</code> always works
+        &mdash; see the curl tutorial below.
+    </div>
+</section>
+
+<!-- ────────────────────────────────────────── -->
+<section class="section">
+    <h2>Command-Line Usage</h2>
+
+    <h3>Server (pbs.java)</h3>
+    <div class="command-box">java pbs.java [options] [port]</div>
+    <div class="options-grid">
+        <div class="option-card"><strong>-q</strong><br>Quiet mode &mdash; suppress per-request logging</div>
+        <div class="option-card"><strong>[port]</strong><br>Port number (default: 8080)</div>
+    </div>
+
+    <h3>Test Client (pbc.java)</h3>
+    <div class="command-box">java pbc.java [options]</div>
+    <div class="options-grid">
+        <div class="option-card"><strong>-p &lt;port&gt;</strong><br>Server port (default: 8080)</div>
+        <div class="option-card"><strong>-t &lt;n&gt;</strong><br>Number of topics (default: 3)</div>
+        <div class="option-card"><strong>-s &lt;n&gt;</strong><br>Subscribers per topic (default: 2)</div>
+        <div class="option-card"><strong>-m &lt;n&gt;</strong><br>Messages per topic (default: 5)</div>
+    </div>
+
+    <h3>Quick Start</h3>
+    <div class="command-box"><strong># Terminal 1 — start server</strong>
+java pbs.java 8080
+
+<strong># Terminal 2 — run tests</strong>
+java pbc.java -p 8080</div>
+
+    <h3>Manual Testing with curl</h3>
+    <div class="command-box"><strong># Subscribe</strong>
+curl -X POST -H "X-Client-ID: alice" http://localhost:8080/subscribe/weather
+
+<strong># Publish</strong>
+curl -X POST -H "X-Client-ID: bob" -d "sunny today" http://localhost:8080/publish/weather
+
+<strong># Poll</strong>
+curl -H "X-Client-ID: alice" http://localhost:8080/messages
+
+<strong># Status</strong>
+curl http://localhost:8080/status</div>
+</section>
+
+<!-- ────────────────────────────────────────── -->
+<section class="section">
+    <h2>Learning Resources</h2>
+    <p>These tutorials cover the concepts you need to build PBS.</p>
+
+    <h3 style="margin-top:25px; color:#0d4f3a;">HTTP Protocol</h3>
+    <div class="tutorials-grid">
+        <a href="http-request-response.html" class="tutorial-card">
+            <span class="category-label">HTTP</span>
+            <h3>HTTP Request/Response Anatomy</h3>
+            <p>Request lines, headers, status codes, and body structure &mdash; everything your server parses and produces</p>
+        </a>
+        <a href="http-headers.html" class="tutorial-card">
+            <span class="category-label">HTTP</span>
+            <h3>HTTP Headers Reference</h3>
+            <p>Content-Type, Content-Length, Connection, and custom headers like X-Client-ID</p>
+        </a>
+        <a href="http-methods.html" class="tutorial-card">
+            <span class="category-label">HTTP</span>
+            <h3>GET vs POST</h3>
+            <p>When to use each method, how POST carries a body, and how your server distinguishes them</p>
+        </a>
+    </div>
+
+    <h3 style="margin-top:25px; color:#0d4f3a;">Java Networking</h3>
+    <div class="tutorials-grid">
+        <a href="java-sockets.html" class="tutorial-card">
+            <span class="category-label">Java</span>
+            <h3>Java Socket Programming</h3>
+            <p>ServerSocket, accept(), BufferedReader, OutputStream, and flushing</p>
+        </a>
+        <a href="virtual-threads.html" class="tutorial-card">
+            <span class="category-label">Java</span>
+            <h3>Virtual Threads</h3>
+            <p>Thread.ofVirtual(), why they matter for servers, and how to use them</p>
+        </a>
+        <a href="concurrent-collections.html" class="tutorial-card">
+            <span class="category-label">Java</span>
+            <h3>ConcurrentHashMap</h3>
+            <p>Thread-safe maps, computeIfAbsent, ConcurrentLinkedQueue, and newKeySet</p>
+        </a>
+    </div>
+
+    <h3 style="margin-top:25px; color:#0d4f3a;">Pub-Sub &amp; Testing</h3>
+    <div class="tutorials-grid">
+        <a href="pubsub-concepts.html" class="tutorial-card">
+            <span class="category-label">Concepts</span>
+            <h3>Pub-Sub Messaging</h3>
+            <p>Topics, subscribers, mailboxes, and how the broker ties them together</p>
+        </a>
+        <a href="testing-curl.html" class="tutorial-card">
+            <span class="category-label">Testing</span>
+            <h3>Testing with curl</h3>
+            <p>Sending GET and POST requests, adding headers, inspecting responses</p>
+        </a>
+        <a href="debugging-http.html" class="tutorial-card">
+            <span class="category-label">Testing</span>
+            <h3>Debugging Your Server</h3>
+            <p>Common mistakes, malformed responses, missing CRLF, and how to diagnose them</p>
+        </a>
+    </div>
+</section>
+
+<footer>
+    <p>PBS &mdash; Pub-Sub Broker Server | Computer Networks SP26</p>
+</footer>
+
+</div>
+
+<script>
+const pane = document.getElementById('result-pane');
+
+function log(text, cls) {
+    const span = document.createElement('span');
+    span.className = cls || '';
+    span.textContent = text + '\n';
+    pane.appendChild(span);
+    pane.scrollTop = pane.scrollHeight;
+}
+
+function clearLog() {
+    pane.innerHTML = '';
+}
+
+async function apiCall(method, pathPrefix) {
+    const host = document.getElementById('t-host').value;
+    const port = document.getElementById('t-port').value;
+    const clientId = document.getElementById('t-client').value;
+    const topic = document.getElementById('t-topic').value;
+    const message = document.getElementById('t-message').value;
+
+    // Build path
+    let path = pathPrefix;
+    if (pathPrefix.endsWith('/')) path += topic;
+
+    const url = 'http://' + host + ':' + port + path;
+
+    // Build headers
+    const headers = {};
+    if (clientId) headers['X-Client-ID'] = clientId;
+
+    const opts = { method: method, headers: headers };
+
+    // POST with body for /publish/
+    if (method === 'POST' && pathPrefix.startsWith('/publish/')) {
+        opts.body = message;
+        headers['Content-Length'] = new Blob([message]).size.toString();
+    }
+
+    // Log request
+    log('--- ' + new Date().toLocaleTimeString() + ' ---');
+    log(method + ' ' + path + ' HTTP/1.1', 'req-line');
+    for (const [k, v] of Object.entries(headers)) {
+        log(k + ': ' + v, 'req-line');
+    }
+    if (opts.body) { log(''); log(opts.body, 'req-line'); }
+    log('');
+
+    try {
+        const res = await fetch(url, opts);
+        log('HTTP/1.1 ' + res.status + ' ' + res.statusText, 'res-line');
+        for (const [k, v] of res.headers.entries()) {
+            log(k + ': ' + v, 'res-line');
+        }
+        log('');
+        const body = await res.text();
+        try {
+            log(JSON.stringify(JSON.parse(body), null, 2), 'res-line');
+        } catch(e) {
+            log(body, 'res-line');
+        }
+    } catch (e) {
+        log('ERROR: ' + e.message, 'err-line');
+        log('Is your server running on ' + host + ':' + port + '?', 'err-line');
+    }
+    log('');
+}
+</script>
+</body>
+</html>

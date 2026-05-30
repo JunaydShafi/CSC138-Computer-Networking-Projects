@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Debugging Your Server</title>
+<style>
+  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #333; line-height: 1.6; }
+  .container { background: #fff; padding: 30px 40px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  h1 { color: #1a7f5a; border-bottom: 3px solid #1a7f5a; padding-bottom: 10px; }
+  h2 { color: #0d4f3a; margin-top: 30px; }
+  h3 { color: #0d4f3a; }
+  .back-link { display: inline-block; margin-bottom: 15px; color: #1a7f5a; text-decoration: none; font-weight: bold; }
+  .back-link:hover { text-decoration: underline; }
+  .code-block { background: #f8f8f8; border-left: 4px solid #1a7f5a; padding: 15px 20px; margin: 15px 0; overflow-x: auto; }
+  .code-block pre { margin: 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; white-space: pre; }
+  .note { background: #e8f4fd; border-left: 4px solid #3498db; padding: 12px 18px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+  .warn { background: #fef9e7; border-left: 4px solid #f1c40f; padding: 12px 18px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+  code { background: #eee; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', Courier, monospace; font-size: 0.95em; }
+  .bug { margin-bottom: 25px; }
+  .bug-header { font-weight: bold; color: #c0392b; }
+</style>
+</head>
+<body>
+<div class="container">
+<a class="back-link" href="index.html">&larr; Back to Project Home</a>
+<h1>Debugging Your Server</h1>
+
+<p>
+Building an HTTP server from scratch means you are responsible for every byte
+in the response. Here are the most common mistakes students make and how to
+fix them.
+</p>
+
+<h2>Start Simple: Test /status First</h2>
+<p>
+Before testing pub-sub logic, make sure your server can handle the simplest
+possible request. Implement a <code>/status</code> endpoint that returns a
+plain text response. Get this working with <code>curl</code> before touching
+anything else. If <code>/status</code> does not work, the problem is in your
+HTTP formatting, not your pub-sub logic.
+</p>
+<div class="code-block"><pre>
+curl -v http://localhost:8080/status
+</pre></div>
+
+<h2>Common Mistakes</h2>
+
+<div class="bug">
+<h3><span class="bug-header">Bug:</span> Using \n instead of \r\n</h3>
+<p><strong>Symptom:</strong> curl says "Recv failure" or shows garbled output. With <code>-v</code>, the response headers look wrong or are missing.</p>
+<p><strong>Cause:</strong> HTTP/1.1 requires lines to end with <code>\r\n</code> (CRLF), not just <code>\n</code>. This is defined in RFC 9112. Java's <code>println()</code> only writes <code>\n</code>.</p>
+<p><strong>Fix:</strong> Write <code>\r\n</code> explicitly:</p>
+<div class="code-block"><pre>
+// WRONG
+out.print("HTTP/1.1 200 OK\n");
+
+// RIGHT
+out.print("HTTP/1.1 200 OK\r\n");
+</pre></div>
+<div class="warn">
+<strong>Warning:</strong> This is the number one mistake. If you use
+<code>PrintWriter.println()</code> to write HTTP responses, your server will
+silently produce malformed HTTP on some platforms. Always use
+<code>print()</code> with explicit <code>\r\n</code>.
+</div>
+</div>
+
+<div class="bug">
+<h3><span class="bug-header">Bug:</span> Forgetting the blank line between headers and body</h3>
+<p><strong>Symptom:</strong> curl shows headers but no body, or treats the body as part of the headers.</p>
+<p><strong>Cause:</strong> HTTP requires an empty line (a bare <code>\r\n</code>) after the last header, before the body begins. This is how the client knows the headers are done.</p>
+<p><strong>Fix:</strong> Always write the blank line:</p>
+<div class="code-block"><pre>
+out.print("HTTP/1.1 200 OK\r\n");
+out.print("Content-Type: text/plain\r\n");
+out.print("Content-Length: 11\r\n");
+out.print("\r\n");                        // blank line -- do not forget this
+out.print("hello world");
+out.flush();
+</pre></div>
+</div>
+
+<div class="bug">
+<h3><span class="bug-header">Bug:</span> Wrong Content-Length</h3>
+<p><strong>Symptom:</strong> The response is truncated (Content-Length too small) or curl hangs waiting for more data (Content-Length too large).</p>
+<p><strong>Cause:</strong> Content-Length must be the exact number of <em>bytes</em> in the body. If you compute it from a Java String, remember that <code>String.length()</code> returns the number of <em>characters</em>, which differs from bytes for non-ASCII text.</p>
+<p><strong>Fix:</strong> Convert to bytes first, then measure:</p>
+<div class="code-block"><pre>
+String body = "hello world";
+byte[] bodyBytes = body.getBytes("UTF-8");
+int contentLength = bodyBytes.length;
+
+out.print("Content-Length: " + contentLength + "\r\n");
+out.print("\r\n");
+outputStream.write(bodyBytes);
+outputStream.flush();
+</pre></div>
+<div class="note">
+<strong>Tip:</strong> For plain ASCII text, <code>String.length()</code> and byte length
+are the same. But it is a good habit to use <code>getBytes()</code> so you do not get
+bitten later.
+</div>
+</div>
+
+<div class="bug">
+<h3><span class="bug-header">Bug:</span> Not flushing the output stream</h3>
+<p><strong>Symptom:</strong> curl hangs indefinitely. The server appears to have processed the request (your debug prints show up), but the client never gets a response.</p>
+<p><strong>Cause:</strong> Java buffers output. If you write your response but never call <code>flush()</code>, the data sits in a buffer and never goes out over the network.</p>
+<p><strong>Fix:</strong> Call <code>flush()</code> after writing the complete response:</p>
+<div class="code-block"><pre>
+out.print("HTTP/1.1 200 OK\r\n");
+out.print("Content-Length: 0\r\n");
+out.print("\r\n");
+out.flush();    // actually send the bytes
+</pre></div>
+</div>
+
+<div class="bug">
+<h3><span class="bug-header">Bug:</span> Reading the body when there is none</h3>
+<p><strong>Symptom:</strong> The server hangs after reading the request line and headers. It never sends a response.</p>
+<p><strong>Cause:</strong> Your code tries to read a request body (e.g., calling <code>read()</code> for Content-Length bytes), but the request has no body. GET requests typically have no body. If <code>Content-Length</code> is 0 or missing, there is nothing to read.</p>
+<p><strong>Fix:</strong> Only read the body if Content-Length is present and greater than 0:</p>
+<div class="code-block"><pre>
+int contentLength = 0;
+// ... parse headers, look for Content-Length ...
+
+String body = "";
+if (contentLength > 0) {
+    char[] buf = new char[contentLength];
+    in.read(buf, 0, contentLength);
+    body = new String(buf);
+}
+</pre></div>
+<div class="warn">
+<strong>Warning:</strong> If you call <code>readLine()</code> to try to read the body,
+it will block until it sees a newline. The body may not end with a newline. Always
+use <code>read(char[], offset, length)</code> with the exact Content-Length.
+</div>
+</div>
+
+<div class="bug">
+<h3><span class="bug-header">Bug:</span> Connection hangs (general)</h3>
+<p><strong>Symptom:</strong> curl just sits there. No response, no error. You have to Ctrl-C to kill it.</p>
+<p><strong>Cause:</strong> This is almost always one of two things:</p>
+<ul>
+  <li>The server is trying to read data the client never sent (see above).</li>
+  <li>The server wrote a response but did not flush (see above).</li>
+</ul>
+<p><strong>Fix:</strong> Add print statements to trace exactly where your server is stuck:</p>
+<div class="code-block"><pre>
+System.out.println("[DEBUG] Parsed request line: " + method + " " + path);
+System.out.println("[DEBUG] Content-Length: " + contentLength);
+System.out.println("[DEBUG] About to read body...");
+// ... read body ...
+System.out.println("[DEBUG] Body read. Sending response...");
+// ... write response ...
+System.out.println("[DEBUG] Response sent and flushed.");
+</pre></div>
+<p>Run your server, send a curl request, and look at which debug line is the last one printed. That tells you exactly where the hang is.</p>
+</div>
+
+<h2>Using Print Statements Effectively</h2>
+<p>
+<code>System.out.println()</code> is your best debugging tool for this project.
+Print at these key points:
+</p>
+<ul>
+  <li>When a new connection is accepted (print the client address).</li>
+  <li>After parsing the request line (print the method and path).</li>
+  <li>After parsing all headers (print header count and Content-Length).</li>
+  <li>After reading the body (print the body length or first N characters).</li>
+  <li>Before sending the response (print the status code).</li>
+  <li>After flushing (confirm the response was sent).</li>
+</ul>
+
+<div class="note">
+<strong>Tip:</strong> Prefix debug output with <code>[DEBUG]</code> or a timestamp so
+you can distinguish it from normal output and easily remove it later.
+</div>
+
+<h2>Debugging Strategy</h2>
+<ol>
+  <li>Get <code>/status</code> working with <code>curl -v</code>.</li>
+  <li>Add <code>/subscribe</code>. Test it. Verify the server stores the subscription.</li>
+  <li>Add <code>/publish</code>. Test it. Use debug prints to confirm the message is queued.</li>
+  <li>Add <code>/poll</code>. Test the full sequence: subscribe, publish, poll.</li>
+  <li>Only after all endpoints work individually, test them in combination.</li>
+</ol>
+<p>
+Do not try to build everything at once. Each endpoint is testable in isolation
+with curl. Build and test one at a time.
+</p>
+
+</div>
+</body>
+</html>

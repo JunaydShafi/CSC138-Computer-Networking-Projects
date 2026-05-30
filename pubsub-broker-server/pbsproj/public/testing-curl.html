@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Testing with curl</title>
+<style>
+  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #333; line-height: 1.6; }
+  .container { background: #fff; padding: 30px 40px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  h1 { color: #1a7f5a; border-bottom: 3px solid #1a7f5a; padding-bottom: 10px; }
+  h2 { color: #0d4f3a; margin-top: 30px; }
+  h3 { color: #0d4f3a; }
+  .back-link { display: inline-block; margin-bottom: 15px; color: #1a7f5a; text-decoration: none; font-weight: bold; }
+  .back-link:hover { text-decoration: underline; }
+  .code-block { background: #f8f8f8; border-left: 4px solid #1a7f5a; padding: 15px 20px; margin: 15px 0; overflow-x: auto; }
+  .code-block pre { margin: 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; white-space: pre; }
+  .note { background: #e8f4fd; border-left: 4px solid #3498db; padding: 12px 18px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+  .warn { background: #fef9e7; border-left: 4px solid #f1c40f; padding: 12px 18px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+  code { background: #eee; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', Courier, monospace; font-size: 0.95em; }
+</style>
+</head>
+<body>
+<div class="container">
+<a class="back-link" href="index.html">&larr; Back to Project Home</a>
+<h1>Testing with curl</h1>
+
+<h2>What is curl?</h2>
+<p>
+<code>curl</code> is a command-line tool for making HTTP requests. It comes
+pre-installed on macOS and Linux, and is available on Windows through Git Bash
+or WSL. It lets you act as an HTTP client without writing any code -- perfect
+for testing your server one endpoint at a time.
+</p>
+
+<h2>Flag Reference</h2>
+<p>Here are the flags you will use most often:</p>
+<table style="width:100%; border-collapse:collapse; margin:15px 0;">
+  <tr style="background:#0d4f3a; color:#fff;">
+    <th style="padding:8px; text-align:left;">Flag</th>
+    <th style="padding:8px; text-align:left;">Meaning</th>
+  </tr>
+  <tr style="border-bottom:1px solid #ddd;">
+    <td style="padding:8px;"><code>-X METHOD</code></td>
+    <td style="padding:8px;">Set the HTTP method (GET, POST, PUT, DELETE). GET is the default.</td>
+  </tr>
+  <tr style="border-bottom:1px solid #ddd;">
+    <td style="padding:8px;"><code>-H "Name: Value"</code></td>
+    <td style="padding:8px;">Add a request header. You can use <code>-H</code> multiple times.</td>
+  </tr>
+  <tr style="border-bottom:1px solid #ddd;">
+    <td style="padding:8px;"><code>-d "data"</code></td>
+    <td style="padding:8px;">Send a request body. Automatically sets the method to POST if <code>-X</code> is not given.</td>
+  </tr>
+  <tr>
+    <td style="padding:8px;"><code>-v</code></td>
+    <td style="padding:8px;">Verbose mode. Shows the full request and response, including all headers.</td>
+  </tr>
+</table>
+
+<h2>Simple GET Request</h2>
+<p>
+Start by testing your <code>/status</code> endpoint. This is the simplest
+request your server should handle:
+</p>
+<div class="code-block"><pre>
+curl http://localhost:8080/status
+</pre></div>
+<p>Expected output (something like):</p>
+<div class="code-block"><pre>
+Server is running
+</pre></div>
+
+<div class="note">
+<strong>Tip:</strong> Always test <code>/status</code> first. If this does not work,
+nothing else will. Get this endpoint working before you move on.
+</div>
+
+<h2>POST Request: Subscribing</h2>
+<p>
+To subscribe a client to a topic, send a POST with an <code>X-Client-ID</code> header:
+</p>
+<div class="code-block"><pre>
+curl -X POST -H "X-Client-ID: alice" http://localhost:8080/subscribe/weather
+</pre></div>
+<p>
+This tells the broker: "alice wants to receive messages published to the weather topic."
+The <code>-X POST</code> sets the method, and <code>-H</code> adds the custom header
+that identifies the client.
+</p>
+
+<h2>POST with Body: Publishing</h2>
+<p>
+To publish a message, send a POST with a body using <code>-d</code>:
+</p>
+<div class="code-block"><pre>
+curl -X POST -H "X-Client-ID: bob" -d "sunny today" http://localhost:8080/publish/weather
+</pre></div>
+<p>
+The <code>-d "sunny today"</code> flag sets the request body. curl will automatically
+include a <code>Content-Length</code> header matching the size of the body.
+</p>
+
+<div class="warn">
+<strong>Watch out:</strong> When you use <code>-d</code>, curl sets
+<code>Content-Type: application/x-www-form-urlencoded</code> by default. Your
+server should not depend on a particular Content-Type for publish. If you want
+to send plain text explicitly, add <code>-H "Content-Type: text/plain"</code>.
+</div>
+
+<h2>Verbose Mode</h2>
+<p>
+When something is not working, use <code>-v</code> to see the full HTTP exchange:
+</p>
+<div class="code-block"><pre>
+curl -v http://localhost:8080/status
+</pre></div>
+<p>This produces output like:</p>
+<div class="code-block"><pre>
+* Connected to localhost (127.0.0.1) port 8080
+> GET /status HTTP/1.1
+> Host: localhost:8080
+> User-Agent: curl/8.1.2
+> Accept: */*
+>
+< HTTP/1.1 200 OK
+< Content-Type: text/plain
+< Content-Length: 17
+<
+Server is running
+</pre></div>
+<p>
+Lines starting with <code>&gt;</code> are what curl sent (the request).
+Lines starting with <code>&lt;</code> are what your server sent back (the response).
+This is invaluable for spotting formatting errors in your HTTP responses.
+</p>
+
+<h2>Complete Test Sequence</h2>
+<p>
+Here is a full end-to-end test you can run in your terminal. Execute each
+command in order:
+</p>
+
+<h3>Step 1: Check the server is up</h3>
+<div class="code-block"><pre>
+curl http://localhost:8080/status
+</pre></div>
+
+<h3>Step 2: Subscribe alice to "weather"</h3>
+<div class="code-block"><pre>
+curl -X POST -H "X-Client-ID: alice" http://localhost:8080/subscribe/weather
+</pre></div>
+
+<h3>Step 3: Subscribe bob to "weather"</h3>
+<div class="code-block"><pre>
+curl -X POST -H "X-Client-ID: bob" http://localhost:8080/subscribe/weather
+</pre></div>
+
+<h3>Step 4: Publish a message</h3>
+<div class="code-block"><pre>
+curl -X POST -H "X-Client-ID: bob" -d "sunny today" http://localhost:8080/publish/weather
+</pre></div>
+
+<h3>Step 5: Poll alice's mailbox</h3>
+<div class="code-block"><pre>
+curl -H "X-Client-ID: alice" http://localhost:8080/poll/alice
+</pre></div>
+<p>You should see "sunny today" in the response body.</p>
+
+<h3>Step 6: Poll alice again</h3>
+<div class="code-block"><pre>
+curl -H "X-Client-ID: alice" http://localhost:8080/poll/alice
+</pre></div>
+<p>This time the mailbox should be empty (204 No Content or an empty body, depending on your design).</p>
+
+<div class="note">
+<strong>Tip:</strong> You can put these commands in a shell script (e.g., <code>test.sh</code>)
+and run them all at once. Add <code>echo</code> statements between commands to label the output:
+<br><br>
+<code>echo "=== subscribing alice ===" &amp;&amp; curl -X POST ...</code>
+</div>
+
+<h2>Troubleshooting curl</h2>
+<ul>
+  <li><strong>Connection refused:</strong> Your server is not running, or it is on a different port.</li>
+  <li><strong>Hangs forever:</strong> Your server accepted the connection but never sent a response. Check that you are flushing the output stream.</li>
+  <li><strong>Empty response:</strong> Your server closed the connection without writing anything. Use <code>-v</code> to confirm.</li>
+  <li><strong>curl: (56) Recv failure:</strong> Your server crashed or closed the socket unexpectedly. Check your server's terminal for stack traces.</li>
+</ul>
+
+</div>
+</body>
+</html>

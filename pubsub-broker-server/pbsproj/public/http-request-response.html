@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTP Request/Response Anatomy</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #0d4f3a;
+            border-bottom: 3px solid #1a7f5a;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #1a7f5a;
+            margin-top: 35px;
+        }
+        h3 {
+            color: #0d4f3a;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #1a7f5a;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .back-link:hover {
+            color: #0d4f3a;
+        }
+        .code-block {
+            background: #f8f8f8;
+            border-left: 4px solid #1a7f5a;
+            padding: 15px 20px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        .note {
+            background: #e8f5e9;
+            border: 1px solid #1a7f5a;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .note strong {
+            color: #0d4f3a;
+        }
+        .label {
+            color: #1a7f5a;
+            font-weight: bold;
+        }
+        code {
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <a class="back-link" href="index.html">&larr; Back to Project Overview</a>
+    <div class="container">
+        <h1>HTTP Request/Response Anatomy</h1>
+        <p>
+            Your pub-sub broker communicates entirely through HTTP/1.1 messages.
+            Every byte you read from the socket and every byte you write back must
+            conform to the format described here. This page is the single most
+            important reference for the project.
+        </p>
+
+        <h2>The Structure of an HTTP Request</h2>
+        <p>An HTTP request has exactly four parts, in order:</p>
+        <ol>
+            <li><span class="label">Request line</span> -- the method, path, and HTTP version</li>
+            <li><span class="label">Headers</span> -- zero or more key-value pairs</li>
+            <li><span class="label">Blank line</span> -- signals the end of the headers</li>
+            <li><span class="label">Body</span> -- optional, only present when Content-Length &gt; 0</li>
+        </ol>
+
+        <h3>Request Line</h3>
+        <p>The first line of every request follows this format:</p>
+        <div class="code-block">METHOD /path HTTP/1.1\r\n</div>
+        <p>
+            The three parts are separated by single spaces. The line ends with
+            <code>\r\n</code> (a carriage return followed by a newline, known as CRLF).
+        </p>
+        <p>Examples from the pub-sub API:</p>
+        <div class="code-block">GET /status HTTP/1.1\r\n
+GET /subscribe/weather HTTP/1.1\r\n
+POST /publish/weather HTTP/1.1\r\n</div>
+
+        <h3>Headers</h3>
+        <p>
+            Each header is a line in the format <code>Name: value\r\n</code>.
+            There is a colon and a space between the name and value.
+            Header names are case-insensitive, so <code>Content-Length</code>,
+            <code>content-length</code>, and <code>CONTENT-LENGTH</code> all mean
+            the same thing.
+        </p>
+        <div class="code-block">Host: localhost:8080\r\n
+Content-Type: application/json\r\n
+Content-Length: 42\r\n</div>
+
+        <h3>Blank Line (End of Headers)</h3>
+        <p>
+            After the last header, you send one more <code>\r\n</code>.
+            Since the header itself already ended with <code>\r\n</code>,
+            you will see <code>\r\n\r\n</code> in the byte stream.
+            This double-CRLF is how you know the headers are finished.
+        </p>
+
+        <h3>Body</h3>
+        <p>
+            If the request includes a <code>Content-Length</code> header, the body
+            follows immediately after the blank line. You must read exactly
+            <code>Content-Length</code> bytes -- no more, no less.
+        </p>
+
+        <h3>Full Request Example</h3>
+        <p>A client publishing a weather update:</p>
+        <div class="code-block">POST /publish/weather HTTP/1.1\r\n
+Host: localhost:8080\r\n
+Content-Type: application/json\r\n
+Content-Length: 28\r\n
+\r\n
+{"temp": 72, "sky": "clear"}</div>
+        <p>
+            Count the body: <code>{"temp": 72, "sky": "clear"}</code> is exactly
+            28 bytes. The Content-Length header told us to read exactly that many
+            bytes after the blank line.
+        </p>
+
+        <div class="note">
+            <strong>Tip:</strong> When parsing the request line, split on spaces.
+            The first token is the method, the second is the path, and the third
+            is the version string. You can ignore the version for this project,
+            but you must still read past it.
+        </div>
+
+        <h2>The Structure of an HTTP Response</h2>
+        <p>A response has the same four parts, but the first line is different:</p>
+        <ol>
+            <li><span class="label">Status line</span> -- the HTTP version, status code, and reason phrase</li>
+            <li><span class="label">Headers</span></li>
+            <li><span class="label">Blank line</span></li>
+            <li><span class="label">Body</span></li>
+        </ol>
+
+        <h3>Status Line</h3>
+        <div class="code-block">HTTP/1.1 200 OK\r\n</div>
+        <p>Common status codes you will use:</p>
+        <ul>
+            <li><code>200 OK</code> -- success</li>
+            <li><code>201 Created</code> -- resource created (e.g., new subscription)</li>
+            <li><code>404 Not Found</code> -- unknown path</li>
+            <li><code>400 Bad Request</code> -- malformed request</li>
+            <li><code>405 Method Not Allowed</code> -- wrong method for this path</li>
+        </ul>
+
+        <h3>Full Response Example</h3>
+        <p>Responding to <code>GET /status</code>:</p>
+        <div class="code-block">HTTP/1.1 200 OK\r\n
+Content-Type: application/json\r\n
+Content-Length: 45\r\n
+\r\n
+{"subscribers": 3, "topics": ["weather","news"]}</div>
+
+        <h2>Understanding CRLF</h2>
+        <p>
+            HTTP requires <code>\r\n</code> (carriage return + line feed) as the
+            line terminator. In Java, that is the string <code>"\r\n"</code>.
+            Do not use just <code>\n</code> -- many HTTP clients and test tools
+            will reject responses that use bare newlines.
+        </p>
+        <p>
+            When you read from the socket, you can read line-by-line until you see
+            an empty line (one that is just <code>\r\n</code>). In Java, if you use
+            a <code>BufferedReader</code>, <code>readLine()</code> strips the
+            line terminator, so an empty line comes back as an empty string <code>""</code>.
+        </p>
+
+        <div class="note">
+            <strong>Tip:</strong> Be careful with <code>BufferedReader</code> when
+            reading the body. Since the body may contain binary data or may not end
+            with a newline, you should use <code>read(char[], offset, length)</code>
+            to read exactly <code>Content-Length</code> characters after the blank line.
+        </div>
+
+        <h2>How Content-Length Tells You When the Body Ends</h2>
+        <p>
+            Unlike the headers (which are terminated by the blank line), the body
+            has no special terminator. The only way to know how many bytes to read
+            is the <code>Content-Length</code> header.
+        </p>
+        <p>Your server must handle three cases:</p>
+        <ol>
+            <li>
+                <strong>No Content-Length header and no body</strong> -- typical for
+                GET requests. After the blank line, the message is complete.
+            </li>
+            <li>
+                <strong>Content-Length: 0</strong> -- there is a header but the body
+                is empty. Treat the same as case 1.
+            </li>
+            <li>
+                <strong>Content-Length: N (where N &gt; 0)</strong> -- read exactly
+                N bytes from the stream after the blank line.
+            </li>
+        </ol>
+
+        <h2>Putting It All Together: Parsing a Request</h2>
+        <p>Here is the sequence your server should follow for each connection:</p>
+        <ol>
+            <li>Read the request line. Split it to get method, path, and version.</li>
+            <li>Read headers one line at a time until you hit an empty line. Store them in a map.</li>
+            <li>Check the map for <code>Content-Length</code>. If present and &gt; 0, read that many bytes as the body.</li>
+            <li>Route the request based on method and path.</li>
+            <li>Build and send the response: status line, headers, blank line, body.</li>
+        </ol>
+
+        <div class="note">
+            <strong>Tip:</strong> When writing your response, always include
+            <code>Content-Length</code> so the client knows when the body ends.
+            Compute the byte length of your body string
+            (<code>body.getBytes().length</code> in Java) and set that as the
+            header value.
+        </div>
+    </div>
+</body>
+</html>

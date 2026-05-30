@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Virtual Threads</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            background: #fff;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #0d4f3a;
+            border-bottom: 3px solid #1a7f5a;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #1a7f5a;
+            margin-top: 30px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #1a7f5a;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .back-link:hover {
+            color: #0d4f3a;
+        }
+        .code-block {
+            background: #f8f8f8;
+            border-left: 4px solid #1a7f5a;
+            padding: 16px;
+            margin: 16px 0;
+            overflow-x: auto;
+            border-radius: 0 4px 4px 0;
+        }
+        .code-block pre {
+            margin: 0;
+            font-family: "Consolas", "Fira Code", monospace;
+            font-size: 14px;
+            white-space: pre;
+        }
+        .note {
+            background: #e8f4fd;
+            border-left: 4px solid #3498db;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        .note strong {
+            color: #2471a3;
+        }
+        code {
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "Consolas", "Fira Code", monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <a class="back-link" href="index.html">&larr; Back to Project Home</a>
+    <div class="container">
+        <h1>Virtual Threads</h1>
+        <p>Virtual threads (introduced in Java 21) let you spawn a lightweight thread per connection without worrying about thread pool sizing or resource limits. This tutorial shows how to use them in your server.</p>
+
+        <h2>The Problem: Blocking Accept Loop</h2>
+        <p>Consider this single-threaded server:</p>
+        <div class="code-block"><pre>while (true) {
+    Socket client = serverSocket.accept();
+    handleClient(client); // blocks until this client is done
+}</pre></div>
+        <p>While <code>handleClient</code> is running for one client, no other client can connect. If a client is slow or sends a large request, every other client is stuck waiting. A server that handles one client at a time is not useful.</p>
+
+        <h2>The Solution: One Thread Per Connection</h2>
+        <p>Spawn a new virtual thread for each accepted connection:</p>
+        <div class="code-block"><pre>while (true) {
+    Socket client = serverSocket.accept();
+    Thread.ofVirtual().start(() -&gt; {
+        try {
+            handleClient(client);
+        } finally {
+            try { client.close(); } catch (IOException e) { }
+        }
+    });
+}</pre></div>
+        <p>That is the entire pattern. The accept loop immediately returns to waiting for the next connection, while the new virtual thread handles the current client independently.</p>
+
+        <h2>Why Virtual Threads Instead of Platform Threads?</h2>
+        <p>Platform threads (the traditional <code>new Thread()</code>) are backed by OS threads. Each one costs about 1 MB of stack memory and has significant creation overhead. If 10,000 clients connect simultaneously, you need 10,000 OS threads &mdash; which will exhaust memory or hit OS limits.</p>
+        <p>Virtual threads are managed by the JVM, not the OS. They are extremely cheap to create (a few hundred bytes of initial memory) and the JVM multiplexes them onto a small pool of OS threads automatically. You can have millions of virtual threads without issue.</p>
+        <p>For a server that mostly does I/O (reading from sockets, writing responses), virtual threads are ideal because the JVM can park a virtual thread during a blocking <code>read()</code> and reuse the underlying OS thread for another virtual thread.</p>
+
+        <div class="note">
+            <strong>Tip:</strong> You do not need an <code>ExecutorService</code> or a thread pool for virtual threads. The JVM handles scheduling internally. Just call <code>Thread.ofVirtual().start()</code> and move on.
+        </div>
+
+        <h2>The Lambda + Try/Finally Pattern</h2>
+        <p>The lambda passed to <code>start()</code> is a <code>Runnable</code>. Use try/finally to guarantee the socket is closed even if an exception occurs:</p>
+        <div class="code-block"><pre>Thread.ofVirtual().start(() -&gt; {
+    try {
+        // read request, send response
+        BufferedReader in = new BufferedReader(
+            new InputStreamReader(client.getInputStream()));
+        OutputStream out = client.getOutputStream();
+        // ... handle the HTTP request ...
+    } catch (IOException e) {
+        // log or ignore
+    } finally {
+        try { client.close(); } catch (IOException e) { }
+    }
+});</pre></div>
+        <p>The <code>finally</code> block ensures the socket is closed whether the handler completes normally, throws an exception, or the client disconnects unexpectedly.</p>
+
+        <h2>Complete Server Skeleton</h2>
+        <div class="code-block"><pre>import java.net.*;
+import java.io.*;
+
+public class Server {
+    public static void main(String[] args) throws IOException {
+        ServerSocket serverSocket = new ServerSocket(8080);
+        System.out.println("Listening on port 8080");
+
+        while (true) {
+            Socket client = serverSocket.accept();
+            Thread.ofVirtual().start(() -&gt; {
+                try {
+                    handleClient(client);
+                } finally {
+                    try { client.close(); } catch (IOException e) { }
+                }
+            });
+        }
+    }
+
+    static void handleClient(Socket client) {
+        try {
+            BufferedReader in = new BufferedReader(
+                new InputStreamReader(client.getInputStream()));
+            OutputStream rawOut = client.getOutputStream();
+            PrintWriter headerWriter = new PrintWriter(rawOut, false);
+
+            // Read request, parse it, send response
+            // ...
+
+        } catch (IOException e) {
+            // client disconnected or I/O error
+        }
+    }
+}</pre></div>
+
+        <div class="note">
+            <strong>Tip:</strong> Virtual threads require Java 21 or later. Make sure you are compiling and running with an appropriate JDK version.
+        </div>
+    </div>
+</body>
+</html>

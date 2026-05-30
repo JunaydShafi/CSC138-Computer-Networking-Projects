@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pub-Sub Messaging</title>
+<style>
+  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #333; line-height: 1.6; }
+  .container { background: #fff; padding: 30px 40px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  h1 { color: #1a7f5a; border-bottom: 3px solid #1a7f5a; padding-bottom: 10px; }
+  h2 { color: #0d4f3a; margin-top: 30px; }
+  .back-link { display: inline-block; margin-bottom: 15px; color: #1a7f5a; text-decoration: none; font-weight: bold; }
+  .back-link:hover { text-decoration: underline; }
+  .code-block { background: #f8f8f8; border-left: 4px solid #1a7f5a; padding: 15px 20px; margin: 15px 0; overflow-x: auto; }
+  .code-block pre { margin: 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; white-space: pre; }
+  .note { background: #e8f4fd; border-left: 4px solid #3498db; padding: 12px 18px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+  .warn { background: #fef9e7; border-left: 4px solid #f1c40f; padding: 12px 18px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+  code { background: #eee; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', Courier, monospace; font-size: 0.95em; }
+</style>
+</head>
+<body>
+<div class="container">
+<a class="back-link" href="index.html">&larr; Back to Project Home</a>
+<h1>Pub-Sub Messaging</h1>
+
+<h2>What is Publish-Subscribe?</h2>
+<p>
+Publish-subscribe (pub-sub) is a messaging pattern where senders of messages
+(<strong>publishers</strong>) do not send them directly to specific receivers
+(<strong>subscribers</strong>). Instead, messages are sent to a named channel called a
+<strong>topic</strong>, and a middleman called a <strong>broker</strong> delivers
+those messages to every subscriber who has registered interest in that topic.
+</p>
+<p>
+The key insight is <em>decoupling</em>: the publisher does not need to know who
+the subscribers are, and subscribers do not need to know who published a message.
+The broker handles all the routing.
+</p>
+
+<h2>Topics as Named Channels</h2>
+<p>
+A topic is just a name -- a string like <code>weather</code> or <code>sports/scores</code>.
+Think of it as a radio channel. Anyone can tune in (subscribe), and anyone can broadcast
+(publish). The broker keeps track of which clients are listening to which topics.
+</p>
+
+<div class="note">
+<strong>Tip:</strong> In this project, topics appear as part of the URL path.
+For example, <code>/subscribe/weather</code> subscribes to the "weather" topic,
+and <code>/publish/weather</code> publishes a message to it.
+</div>
+
+<h2>How It Works</h2>
+<p>Here is the basic flow:</p>
+<ol>
+  <li><strong>Subscribe:</strong> A client tells the broker "I want messages from topic X."</li>
+  <li><strong>Publish:</strong> A different client sends a message to topic X.</li>
+  <li><strong>Deliver:</strong> The broker places a copy of that message into every subscriber's mailbox.</li>
+  <li><strong>Poll:</strong> Each subscriber asks the broker "Do you have any messages for me?" and retrieves them.</li>
+</ol>
+
+<div class="code-block"><pre>
+Publisher                        Broker                      Subscribers
+=========                   ==============                  ============
+
+                            alice subscribes
+                            to "weather"
+                            bob subscribes
+                            to "weather"
+
+   bob sends:
+   POST /publish/weather
+   Body: "sunny today"
+          -------->        [Broker receives msg]
+                            |
+                            +---> mailbox(alice): ["sunny today"]
+                            +---> mailbox(bob):   ["sunny today"]
+
+                            alice sends:
+                            GET /poll/alice
+                      <--------
+                            Response: "sunny today"
+                            mailbox(alice): [] (now empty)
+</pre></div>
+
+<h2>The Mailbox Model</h2>
+<p>
+In many pub-sub systems, the broker pushes messages to subscribers the instant
+they arrive. That requires holding open a connection to each subscriber, which
+is complex. In this project, we use a simpler <strong>mailbox model</strong>:
+</p>
+<ul>
+  <li>Each client has a mailbox (a queue) stored on the broker.</li>
+  <li>When a message is published, the broker copies it into the mailbox of every subscriber for that topic.</li>
+  <li>Subscribers retrieve messages by <em>polling</em> -- sending a request to check their mailbox.</li>
+  <li>Once retrieved, messages are removed from the mailbox.</li>
+</ul>
+
+<div class="warn">
+<strong>Important:</strong> If a client subscribes to a topic but never polls,
+messages will accumulate in their mailbox. Your server should still accept and
+queue those messages.
+</div>
+
+<h2>Contrast: Request-Response vs Event-Driven</h2>
+<p>
+Normal HTTP follows a <strong>request-response</strong> pattern: the client asks
+for something specific, and the server responds with exactly that. Every interaction
+is initiated by the client, and the server only does what is asked.
+</p>
+<p>
+Pub-sub is <strong>event-driven</strong>: a publisher creates an event ("here is a
+new weather reading"), and the broker distributes it to interested parties. The
+subscribers did not ask for that specific message at that specific time -- they
+expressed interest in a topic earlier, and the broker remembers.
+</p>
+
+<table style="width:100%; border-collapse:collapse; margin:15px 0;">
+  <tr style="background:#0d4f3a; color:#fff;">
+    <th style="padding:8px; text-align:left;">Aspect</th>
+    <th style="padding:8px; text-align:left;">Request-Response</th>
+    <th style="padding:8px; text-align:left;">Pub-Sub (this project)</th>
+  </tr>
+  <tr style="border-bottom:1px solid #ddd;">
+    <td style="padding:8px;">Who initiates?</td>
+    <td style="padding:8px;">Client asks, server answers</td>
+    <td style="padding:8px;">Publisher sends, broker delivers</td>
+  </tr>
+  <tr style="border-bottom:1px solid #ddd;">
+    <td style="padding:8px;">Coupling</td>
+    <td style="padding:8px;">Client knows exactly what to ask for</td>
+    <td style="padding:8px;">Publisher and subscriber don't know each other</td>
+  </tr>
+  <tr style="border-bottom:1px solid #ddd;">
+    <td style="padding:8px;">Delivery</td>
+    <td style="padding:8px;">One-to-one</td>
+    <td style="padding:8px;">One-to-many (fan-out)</td>
+  </tr>
+  <tr>
+    <td style="padding:8px;">Timing</td>
+    <td style="padding:8px;">Synchronous</td>
+    <td style="padding:8px;">Asynchronous (message waits in mailbox)</td>
+  </tr>
+</table>
+
+<h2>Why Pub-Sub Over HTTP?</h2>
+<p>
+In the real world, pub-sub systems use specialized protocols (MQTT, AMQP, Kafka's
+binary protocol). In this project, we layer pub-sub semantics on top of plain
+HTTP/1.1. This is not how production systems typically work, but it lets you
+practice HTTP parsing and server design without learning a new protocol.
+</p>
+<p>
+The result: you get to build something that <em>behaves</em> like a message broker
+while only dealing with HTTP requests and responses that you already understand.
+</p>
+
+</div>
+</body>
+</html>

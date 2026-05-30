@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java Socket Programming</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            background: #fff;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #0d4f3a;
+            border-bottom: 3px solid #1a7f5a;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #1a7f5a;
+            margin-top: 30px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #1a7f5a;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .back-link:hover {
+            color: #0d4f3a;
+        }
+        .code-block {
+            background: #f8f8f8;
+            border-left: 4px solid #1a7f5a;
+            padding: 16px;
+            margin: 16px 0;
+            overflow-x: auto;
+            border-radius: 0 4px 4px 0;
+        }
+        .code-block pre {
+            margin: 0;
+            font-family: "Consolas", "Fira Code", monospace;
+            font-size: 14px;
+            white-space: pre;
+        }
+        .note {
+            background: #e8f4fd;
+            border-left: 4px solid #3498db;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        .note strong {
+            color: #2471a3;
+        }
+        code {
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "Consolas", "Fira Code", monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <a class="back-link" href="index.html">&larr; Back to Project Home</a>
+    <div class="container">
+        <h1>Java Socket Programming</h1>
+        <p>This tutorial covers the core socket operations you need for the pub-sub broker: listening for connections, reading HTTP requests, and writing HTTP responses.</p>
+
+        <h2>Creating a Server Socket</h2>
+        <p>A <code>ServerSocket</code> binds to a port and listens for incoming TCP connections.</p>
+        <div class="code-block"><pre>ServerSocket serverSocket = new ServerSocket(8080);
+System.out.println("Listening on port 8080");</pre></div>
+        <p>This creates a TCP socket bound to port 8080. The OS will queue incoming connections until you accept them.</p>
+
+        <h2>The Accept Loop</h2>
+        <p>Call <code>accept()</code> to wait for the next client connection. It blocks until a client connects and returns a <code>Socket</code> representing that connection.</p>
+        <div class="code-block"><pre>while (true) {
+    Socket clientSocket = serverSocket.accept();
+    // handle clientSocket ...
+}</pre></div>
+
+        <h2>Reading from a Socket</h2>
+        <p>Wrap the socket's input stream in a <code>BufferedReader</code> to read text line by line. This is ideal for HTTP headers, which are line-delimited.</p>
+        <div class="code-block"><pre>BufferedReader in = new BufferedReader(
+    new InputStreamReader(clientSocket.getInputStream()));
+
+String line;
+while ((line = in.readLine()) != null &amp;&amp; !line.isEmpty()) {
+    System.out.println(line);
+    // parse headers here
+}</pre></div>
+        <div class="note">
+            <strong>Tip:</strong> HTTP headers end with a blank line (<code>\r\n\r\n</code>). The <code>readLine()</code> method strips the line terminator, so an empty header section gives you an empty string <code>""</code>. The condition <code>!line.isEmpty()</code> detects this boundary.
+        </div>
+
+        <h2>Reading a Fixed Number of Bytes (Request Body)</h2>
+        <p>HTTP request bodies (like a POST with a JSON payload) have a length specified by the <code>Content-Length</code> header. You cannot use <code>readLine()</code> for the body because the body may not end with a newline, and binary data would be corrupted. Instead, read exactly that many characters from the <code>BufferedReader</code>:</p>
+        <div class="code-block"><pre>// After parsing headers, you know contentLength
+int contentLength = ...; // parsed from Content-Length header
+
+char[] body = new char[contentLength];
+int totalRead = 0;
+while (totalRead &lt; contentLength) {
+    int read = in.read(body, totalRead, contentLength - totalRead);
+    if (read == -1) break; // connection closed prematurely
+    totalRead += read;
+}
+String bodyStr = new String(body, 0, totalRead);</pre></div>
+        <div class="note">
+            <strong>Tip:</strong> A single call to <code>read()</code> may not return all the bytes you asked for. The while loop ensures you keep reading until you have exactly <code>contentLength</code> characters. This is a common pattern in network programming.
+        </div>
+
+        <h2>Writing HTTP Responses</h2>
+        <p>Use <code>PrintWriter</code> for the status line and headers (text), and the raw <code>OutputStream</code> for the body (which may be binary or text). Always flush after writing.</p>
+        <div class="code-block"><pre>OutputStream rawOut = clientSocket.getOutputStream();
+PrintWriter headerWriter = new PrintWriter(rawOut, false); // no auto-flush
+
+// Write status line and headers
+headerWriter.print("HTTP/1.1 200 OK\r\n");
+headerWriter.print("Content-Type: application/json\r\n");
+headerWriter.print("Content-Length: " + bodyBytes.length + "\r\n");
+headerWriter.print("\r\n");
+headerWriter.flush();
+
+// Write body bytes
+rawOut.write(bodyBytes);
+rawOut.flush();</pre></div>
+        <div class="note">
+            <strong>Tip:</strong> Use <code>\r\n</code> (CRLF) for HTTP line endings, not <code>\n</code>. Use <code>print()</code> not <code>println()</code> so you control the line endings exactly. And always call <code>flush()</code> &mdash; otherwise data may sit in a buffer and the client will hang waiting for it.
+        </div>
+
+        <h2>Why PrintWriter for Headers, OutputStream for Body?</h2>
+        <p>Headers are always ASCII text, so <code>PrintWriter</code> is convenient. But the body could be arbitrary bytes. If you use <code>PrintWriter</code> for the body, character encoding issues can corrupt binary data. The safe pattern is:</p>
+        <ul>
+            <li><code>PrintWriter</code> wrapping the <code>OutputStream</code> &mdash; for headers only</li>
+            <li>Flush the <code>PrintWriter</code> before switching to raw <code>OutputStream</code></li>
+            <li><code>OutputStream.write(byte[])</code> &mdash; for the body</li>
+        </ul>
+        <p>To get body bytes from a string: <code>byte[] bodyBytes = bodyString.getBytes(StandardCharsets.UTF_8);</code></p>
+
+        <h2>Closing Sockets</h2>
+        <p>Always close the client socket when you are done. Use try-with-resources or a try/finally block:</p>
+        <div class="code-block"><pre>try (Socket clientSocket = serverSocket.accept()) {
+    // handle request and send response
+} // socket is automatically closed here</pre></div>
+        <p>Or equivalently with try/finally:</p>
+        <div class="code-block"><pre>Socket clientSocket = serverSocket.accept();
+try {
+    // handle request and send response
+} finally {
+    clientSocket.close();
+}</pre></div>
+        <p>Closing the socket also closes its input and output streams. Do not close the <code>BufferedReader</code> or <code>PrintWriter</code> independently &mdash; closing the socket is sufficient and avoids confusing double-close issues.</p>
+
+        <h2>Putting It Together</h2>
+        <p>Here is a minimal server that reads an HTTP request and sends a fixed response:</p>
+        <div class="code-block"><pre>ServerSocket serverSocket = new ServerSocket(8080);
+while (true) {
+    try (Socket client = serverSocket.accept()) {
+        BufferedReader in = new BufferedReader(
+            new InputStreamReader(client.getInputStream()));
+        OutputStream rawOut = client.getOutputStream();
+        PrintWriter headerWriter = new PrintWriter(rawOut, false);
+
+        // Read request line and headers
+        String requestLine = in.readLine();
+        String line;
+        while ((line = in.readLine()) != null &amp;&amp; !line.isEmpty()) {
+            // parse headers if needed
+        }
+
+        // Send response
+        byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+        headerWriter.print("HTTP/1.1 200 OK\r\n");
+        headerWriter.print("Content-Type: application/json\r\n");
+        headerWriter.print("Content-Length: " + body.length + "\r\n");
+        headerWriter.print("\r\n");
+        headerWriter.flush();
+        rawOut.write(body);
+        rawOut.flush();
+    }
+}</pre></div>
+    </div>
+</body>
+</html>

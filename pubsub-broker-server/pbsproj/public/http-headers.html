@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTP Headers Reference</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #0d4f3a;
+            border-bottom: 3px solid #1a7f5a;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #1a7f5a;
+            margin-top: 35px;
+        }
+        h3 {
+            color: #0d4f3a;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #1a7f5a;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .back-link:hover {
+            color: #0d4f3a;
+        }
+        .code-block {
+            background: #f8f8f8;
+            border-left: 4px solid #1a7f5a;
+            padding: 15px 20px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        .note {
+            background: #e8f5e9;
+            border: 1px solid #1a7f5a;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .note strong {
+            color: #0d4f3a;
+        }
+        code {
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th {
+            background: #1a7f5a;
+            color: white;
+            text-align: left;
+            padding: 10px 15px;
+        }
+        td {
+            border-bottom: 1px solid #ddd;
+            padding: 10px 15px;
+        }
+        tr:hover {
+            background: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <a class="back-link" href="index.html">&larr; Back to Project Overview</a>
+    <div class="container">
+        <h1>HTTP Headers Reference</h1>
+        <p>
+            HTTP headers carry metadata about the request or response. They appear
+            between the request/status line and the blank line that separates
+            headers from the body. This page covers every header you will need
+            for the pub-sub broker.
+        </p>
+
+        <h2>Header Format</h2>
+        <p>Every header follows this pattern:</p>
+        <div class="code-block">Header-Name: header-value\r\n</div>
+        <p>
+            The name and value are separated by a colon and a space. The line
+            ends with CRLF (<code>\r\n</code>).
+        </p>
+
+        <div class="note">
+            <strong>Tip:</strong> When parsing, split on the first colon only.
+            The value may contain colons (for example, <code>Host: localhost:8080</code>).
+            In Java: <code>line.split(": ", 2)</code> will give you the name and
+            the full value.
+        </div>
+
+        <h2>Case Insensitivity</h2>
+        <p>
+            HTTP header names are case-insensitive per the specification. All of
+            the following are equivalent:
+        </p>
+        <div class="code-block">Content-Length: 42
+content-length: 42
+CONTENT-LENGTH: 42</div>
+        <p>
+            Your server must handle any casing a client might send. The simplest
+            approach is to convert header names to lowercase when storing them
+            in your map, then always look up lowercase keys.
+        </p>
+        <div class="code-block">// Java example
+Map&lt;String, String&gt; headers = new HashMap&lt;&gt;();
+// When parsing:
+String[] parts = line.split(": ", 2);
+headers.put(parts[0].toLowerCase(), parts[1]);
+// When reading:
+String length = headers.get("content-length");</div>
+
+        <h2>Headers You Must Support</h2>
+
+        <table>
+            <tr>
+                <th>Header</th>
+                <th>Direction</th>
+                <th>Purpose</th>
+            </tr>
+            <tr>
+                <td><code>Content-Type</code></td>
+                <td>Request and Response</td>
+                <td>MIME type of the body</td>
+            </tr>
+            <tr>
+                <td><code>Content-Length</code></td>
+                <td>Request and Response</td>
+                <td>Byte length of the body</td>
+            </tr>
+            <tr>
+                <td><code>Connection</code></td>
+                <td>Request and Response</td>
+                <td>Whether to keep the connection alive or close it</td>
+            </tr>
+            <tr>
+                <td><code>Host</code></td>
+                <td>Request</td>
+                <td>The server hostname (required by HTTP/1.1)</td>
+            </tr>
+        </table>
+
+        <h3>Content-Type</h3>
+        <p>
+            Tells the receiver what format the body is in. For this project,
+            you will almost always use JSON:
+        </p>
+        <div class="code-block">Content-Type: application/json</div>
+        <p>
+            Your server should include this header on every response that carries
+            a JSON body. When reading requests, you can check this header to
+            confirm the client sent JSON, but for this project it is acceptable
+            to assume all POST bodies are JSON.
+        </p>
+
+        <h3>Content-Length</h3>
+        <p>
+            The number of bytes in the body. This is how the reader knows when
+            the body ends. You must include it on every response that has a body.
+        </p>
+        <div class="code-block">Content-Length: 28</div>
+        <p>
+            Be careful: this is the byte count, not the character count. For
+            ASCII text they are the same, but if you ever have multi-byte
+            characters, use <code>body.getBytes("UTF-8").length</code> in Java.
+        </p>
+
+        <div class="note">
+            <strong>Tip:</strong> A common bug is computing the Content-Length
+            from <code>body.length()</code> (which returns the character count)
+            instead of <code>body.getBytes().length</code> (byte count). For
+            plain ASCII they match, but building the right habit now will
+            save you from subtle bugs later.
+        </div>
+
+        <h3>Connection</h3>
+        <p>
+            Controls whether the TCP connection stays open after the
+            response is sent.
+        </p>
+        <div class="code-block">Connection: close</div>
+        <p>
+            For simplicity, your server can send <code>Connection: close</code>
+            on every response and close the socket after writing the response.
+            This avoids the complexity of persistent connections and request
+            pipelining. A production server would keep the connection open by
+            default in HTTP/1.1, but that is not required here.
+        </p>
+
+        <h3>Host</h3>
+        <p>
+            HTTP/1.1 requires clients to send a <code>Host</code> header on every
+            request. It identifies which server the request is intended for
+            (important when multiple domains share one IP).
+        </p>
+        <div class="code-block">Host: localhost:8080</div>
+        <p>
+            Your server does not need to act on this header, but you should
+            be aware that it will be present in incoming requests. Do not
+            reject a request because it includes headers you do not recognize.
+        </p>
+
+        <h2>Custom Headers</h2>
+        <p>
+            The HTTP specification allows arbitrary custom headers. By convention,
+            custom headers use an <code>X-</code> prefix. In the pub-sub project,
+            you may encounter or use headers like:
+        </p>
+        <div class="code-block">X-Client-ID: subscriber-42</div>
+        <p>
+            Custom headers are parsed the same way as standard headers. If your
+            broker design uses a client identifier, a custom header is a clean
+            way to carry it without polluting the URL or body.
+        </p>
+
+        <h2>Full Example: Request with Headers</h2>
+        <p>A subscriber registering for the "news" topic:</p>
+        <div class="code-block">GET /subscribe/news HTTP/1.1\r\n
+Host: localhost:8080\r\n
+X-Client-ID: client-7\r\n
+Connection: close\r\n
+\r\n</div>
+        <p>
+            This request has no body, so there is no Content-Length or
+            Content-Type header. The blank line at the end signals that
+            headers are complete and there is nothing more to read.
+        </p>
+
+        <h2>Full Example: Response with Headers</h2>
+        <p>The server confirming the subscription:</p>
+        <div class="code-block">HTTP/1.1 201 Created\r\n
+Content-Type: application/json\r\n
+Content-Length: 39\r\n
+Connection: close\r\n
+\r\n
+{"status":"subscribed","topic":"news"}</div>
+
+        <div class="note">
+            <strong>Tip:</strong> When building your response string, a helper
+            method that takes a status code, a body string, and returns the
+            full HTTP response (with computed Content-Length) will prevent
+            many bugs. Write it once, use it everywhere.
+        </div>
+    </div>
+</body>
+</html>

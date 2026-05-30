@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ConcurrentHashMap and Thread-Safe Collections</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            background: #fff;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #0d4f3a;
+            border-bottom: 3px solid #1a7f5a;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #1a7f5a;
+            margin-top: 30px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #1a7f5a;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .back-link:hover {
+            color: #0d4f3a;
+        }
+        .code-block {
+            background: #f8f8f8;
+            border-left: 4px solid #1a7f5a;
+            padding: 16px;
+            margin: 16px 0;
+            overflow-x: auto;
+            border-radius: 0 4px 4px 0;
+        }
+        .code-block pre {
+            margin: 0;
+            font-family: "Consolas", "Fira Code", monospace;
+            font-size: 14px;
+            white-space: pre;
+        }
+        .note {
+            background: #e8f4fd;
+            border-left: 4px solid #3498db;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        .note strong {
+            color: #2471a3;
+        }
+        code {
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "Consolas", "Fira Code", monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <a class="back-link" href="index.html">&larr; Back to Project Home</a>
+    <div class="container">
+        <h1>ConcurrentHashMap and Thread-Safe Collections</h1>
+        <p>When multiple virtual threads handle connections simultaneously, they share data structures like topic subscriber lists and message queues. Regular collections like <code>HashMap</code> are not safe for concurrent access. This tutorial covers the thread-safe alternatives you need for the pub-sub broker.</p>
+
+        <h2>Why HashMap Is Unsafe</h2>
+        <p>A <code>HashMap</code> is not designed for concurrent modification. If two threads call <code>put()</code> at the same time, the internal array can become corrupted: entries can be lost, the map can enter an infinite loop during resize, or you can get wrong values back from <code>get()</code>. These bugs are intermittent and extremely hard to reproduce.</p>
+        <div class="code-block"><pre>// UNSAFE -- do not use in a multi-threaded server
+Map&lt;String, Set&lt;String&gt;&gt; subscribers = new HashMap&lt;&gt;();</pre></div>
+
+        <h2>ConcurrentHashMap Basics</h2>
+        <p><code>ConcurrentHashMap</code> is a drop-in replacement that is safe for concurrent reads and writes. Individual operations like <code>put()</code>, <code>get()</code>, and <code>remove()</code> are atomic.</p>
+        <div class="code-block"><pre>import java.util.concurrent.ConcurrentHashMap;
+
+ConcurrentHashMap&lt;String, String&gt; map = new ConcurrentHashMap&lt;&gt;();
+map.put("key", "value");
+String val = map.get("key");  // "value"
+map.remove("key");</pre></div>
+
+        <h2>computeIfAbsent: Atomic Lazy Initialization</h2>
+        <p>A common pattern in the pub-sub broker: when a subscriber joins a topic, you need to get the set of subscribers for that topic, creating it if it does not exist yet. With a regular map, this requires a check-then-act sequence that is not atomic:</p>
+        <div class="code-block"><pre>// UNSAFE race condition with regular HashMap
+if (!map.containsKey(topic)) {
+    map.put(topic, ConcurrentHashMap.newKeySet());
+}
+map.get(topic).add(subscriberId);</pre></div>
+        <p><code>computeIfAbsent</code> does this atomically in one call:</p>
+        <div class="code-block"><pre>ConcurrentHashMap&lt;String, Set&lt;String&gt;&gt; topicSubscribers =
+    new ConcurrentHashMap&lt;&gt;();
+
+// Atomically get or create the subscriber set for a topic
+topicSubscribers.computeIfAbsent(topic, k -&gt; ConcurrentHashMap.newKeySet())
+                .add(subscriberId);</pre></div>
+        <p>If the key does not exist, the lambda runs to create the initial value. If another thread is simultaneously creating the same key, only one lambda executes and both threads get the same set back.</p>
+
+        <h2>Concurrent Sets with newKeySet()</h2>
+        <p><code>ConcurrentHashMap.newKeySet()</code> returns a thread-safe <code>Set</code>. Use it wherever you need a set that multiple threads will read and modify:</p>
+        <div class="code-block"><pre>Set&lt;String&gt; subscribers = ConcurrentHashMap.newKeySet();
+subscribers.add("client-1");
+subscribers.add("client-2");
+subscribers.remove("client-1");
+
+// Iterate safely -- snapshot semantics
+for (String sub : subscribers) {
+    // deliver message to sub
+}</pre></div>
+        <div class="note">
+            <strong>Tip:</strong> Iteration over a <code>ConcurrentHashMap.newKeySet()</code> does not throw <code>ConcurrentModificationException</code>. It reflects a weakly consistent view of the set, which is fine for pub-sub delivery.
+        </div>
+
+        <h2>ConcurrentLinkedQueue for Mailboxes</h2>
+        <p>Each subscriber needs a queue of pending messages (a mailbox). <code>ConcurrentLinkedQueue</code> is an unbounded, thread-safe, FIFO queue. Producers add messages with <code>add()</code>; the consumer retrieves them with <code>poll()</code> (returns null if empty).</p>
+        <div class="code-block"><pre>import java.util.concurrent.ConcurrentLinkedQueue;
+
+ConcurrentLinkedQueue&lt;String&gt; mailbox = new ConcurrentLinkedQueue&lt;&gt;();
+
+// Publisher thread adds a message
+mailbox.add("{\"topic\":\"weather\",\"message\":\"sunny\"}");
+
+// Subscriber thread retrieves messages
+String msg = mailbox.poll(); // returns null if queue is empty</pre></div>
+
+        <h2>Pub-Sub Data Structures</h2>
+        <p>Here is how these collections fit together for the broker. You need three maps:</p>
+        <div class="code-block"><pre>// Topic -&gt; set of subscriber IDs
+ConcurrentHashMap&lt;String, Set&lt;String&gt;&gt; topicSubscribers =
+    new ConcurrentHashMap&lt;&gt;();
+
+// Subscriber ID -&gt; queue of pending messages
+ConcurrentHashMap&lt;String, ConcurrentLinkedQueue&lt;String&gt;&gt; mailboxes =
+    new ConcurrentHashMap&lt;&gt;();</pre></div>
+
+        <p><strong>When a client subscribes to a topic:</strong></p>
+        <div class="code-block"><pre>topicSubscribers
+    .computeIfAbsent(topic, k -&gt; ConcurrentHashMap.newKeySet())
+    .add(subscriberId);
+
+mailboxes.computeIfAbsent(subscriberId, k -&gt; new ConcurrentLinkedQueue&lt;&gt;());</pre></div>
+
+        <p><strong>When a client publishes a message to a topic:</strong></p>
+        <div class="code-block"><pre>Set&lt;String&gt; subs = topicSubscribers.get(topic);
+if (subs != null) {
+    for (String sub : subs) {
+        ConcurrentLinkedQueue&lt;String&gt; q = mailboxes.get(sub);
+        if (q != null) {
+            q.add(message);
+        }
+    }
+}</pre></div>
+
+        <p><strong>When a subscriber polls for messages:</strong></p>
+        <div class="code-block"><pre>ConcurrentLinkedQueue&lt;String&gt; q = mailboxes.get(subscriberId);
+if (q != null) {
+    String msg = q.poll();
+    // if msg is null, no messages are waiting
+}</pre></div>
+
+        <div class="note">
+            <strong>Tip:</strong> All of these operations are safe to call from multiple threads simultaneously without any <code>synchronized</code> blocks. That is the entire point of using concurrent collections -- they handle the locking internally.
+        </div>
+
+        <h2>Summary</h2>
+        <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+            <tr style="background:#0d4f3a; color:#fff;">
+                <th style="padding:8px; text-align:left;">Need</th>
+                <th style="padding:8px; text-align:left;">Use</th>
+            </tr>
+            <tr style="border-bottom:1px solid #ddd;">
+                <td style="padding:8px;">Thread-safe key-value map</td>
+                <td style="padding:8px;"><code>ConcurrentHashMap</code></td>
+            </tr>
+            <tr style="border-bottom:1px solid #ddd;">
+                <td style="padding:8px;">Thread-safe set</td>
+                <td style="padding:8px;"><code>ConcurrentHashMap.newKeySet()</code></td>
+            </tr>
+            <tr style="border-bottom:1px solid #ddd;">
+                <td style="padding:8px;">Thread-safe FIFO queue</td>
+                <td style="padding:8px;"><code>ConcurrentLinkedQueue</code></td>
+            </tr>
+            <tr>
+                <td style="padding:8px;">Get-or-create atomically</td>
+                <td style="padding:8px;"><code>computeIfAbsent()</code></td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>
